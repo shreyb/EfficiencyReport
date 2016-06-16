@@ -1,0 +1,147 @@
+#!/usr/bin/env python
+import sys
+import os
+import optparse
+import traceback
+import operator
+import TextUtils
+import Configuration
+from TimeUtils import TimeUtils
+import NiceNum
+from MySQLUtils import MySQLUtils
+from Reporter import Reporter
+
+
+class User:
+    def __init__(self, info):
+        tmp = info.split(',')
+        # CSV format 'DARKSIDE, UNKNOWN, Fermigrid, /CN = fifegrid/CN = batch/CN = Shawn S. Westerdale/CN = UID:shawest, '
+        # '13411.2019444, 0.969314375191'
+        self.vo = tmp[0].lower().strip()
+        self.facility = tmp[2].strip()
+        self.email, self.user = self.parseCN(tmp[3].strip())
+        self.hours = int(float(tmp[4]))
+        self.eff = round(float(tmp[5]), 2)
+
+    def parseCN(self, cn):
+        indx = cn.find("/CN=UID:")
+        if indx > 0:
+            email = '%s@fnal.gov' % (cn[indx + len("/CN=UID:"):],)
+        else:
+            email = ""
+            indx = cn.rfind('/')
+        user = cn[cn[:indx].rfind("=") + 1:indx]
+        return email, user
+
+    def dump(self):
+        print "%10s, %20s, %20s, %s, %s" % (self.vo, self.facility, self.user, int(self.hours), round(self.eff, 2))
+
+
+class Efficiency(Reporter):
+    def __init__(self, config, start, end, verbose, hour_limit, eff_limit, users, isTest):
+        Reporter.__init__(self, config, start, end, verbose)
+        self.hour_limit = hour_limit
+        self.eff_limit = eff_limit
+        self.users = users
+        self.isTest = isTest
+
+    def reportVO(self, vo, facility):
+        info = []
+        records = []
+        if vo == "FIFE":
+            for rec in self.users.values():
+                records = records + rec
+        else:
+            records = self.users[vo.lower()]
+        for rec in records:
+            if rec.hours > self.hour_limit and rec.eff < self.eff_limit:
+                if facility == "all" or rec.facility == facility:
+		   
+                    info.append(rec)
+        return sorted(info, key=lambda user: user.eff)
+
+    def sendReport(self, vo, report):
+        table = ""
+        if len(report) == 0:
+            return
+        for u in report:
+            table += '<tr><td align="left">%s</td><td align="left">%s</td>' % (u.vo.upper(), u.facility,) + \
+                     '<td align="left">%s</td><td align="right">%s</td><td align="right">%s</td></tr>' % \
+                     (u.user, NiceNum.niceNum(u.hours), u.eff)
+        text = "".join(open("template_efficiency.html").readlines())
+        text = text.replace("$START", self.start_time)
+        text = text.replace("$END", self.end_time)
+        text = text.replace("$TABLE", table)
+        text = text.replace("$VO", vo.upper())
+        fn = "%s-efficiency.%s" % (vo.lower(), self.start_time.replace("/", "-"))
+        f = open(fn, "w")
+        f.write(text)
+        f.close()
+        if self.isTest:
+            emails = self.config.get("email", "test_to").split(",")
+        else:
+            emails = self.config.get(vo.lower(), "email").split(",") + self.config.get("email", "test_to").split(",")
+        TextUtils.sendEmail(([], emails), "%s Jobs with Low Efficiency (%s)  on the  OSG Sites (%s - %s)" % (
+            vo, self.eff_limit, self.start_time, self.end_time), {"html": text},
+                            ("Gratia Operation", "tlevshin@fnal.gov"),
+                            "smtp.fnal.gov")
+        f.close()
+        os.remove(fn)
+
+
+def parse_opts():
+    """Parses command line options"""
+    usage = "Usage: %prog [options]"
+    parser = optparse.OptionParser(usage)
+    parser.add_option("-c", "--config", dest="config", type="string",
+                      help="report configuration file (required)")
+    parser.add_option("-v", "--verbose",
+                      action="store_true", dest="verbose", default=False,
+                      help="print debug messages to stdout")
+    parser.add_option("-E", "--experiement",
+                      dest="vo", type="string",
+                      help="experiment name")
+    parser.add_option("-F", "--facility",
+                      dest="facility", type="string",
+                      help="facility  name")
+    parser.add_option("-s", "--start", type="string",
+                      dest="start", help="report start date YYYY/MM/DD HH:MM:DD (required)")
+    parser.add_option("-e", "--end", type="string",
+                      dest="end", help="report end date YYYY/MM/DD")
+    parser.add_option("-d", "--dryrun", action="store_true", dest="isTest", default=False,
+                      help="send emails only to testers")
+
+    opts, args = parser.parse_args()
+    Configuration.checkRequiredArguments(opts, parser)
+    return opts, args
+
+
+if __name__ == "__main__":
+    opts, args = parse_opts()
+    try:
+        config = Configuration.Configuration()
+        config.configure(opts.config)
+        vo = opts.vo
+        eff = config.config.get(opts.vo.lower(), "efficiency")
+        min_hours = config.config.get(opts.vo.lower(), "min_hours")
+        command = config.config.get("query", "curl")
+        command = command.replace("$START", opts.start.split()[0])
+        command = command.replace("$END", opts.end.split()[0])
+        command = command.replace("$VO", opts.vo.lower())
+        command = command.replace("$MIN_HOURS", min_hours)
+        MySQLUtils.executeCmd("curl %s > efficiency.csv" % (command,), True)
+        f = open("efficiency.csv").readlines()
+        users = {}
+        for line in f[1:]:
+            u = User(line[:-1].replace("(", '').replace(")", '').replace("'", ""))
+            if not users.has_key(u.vo):
+                users[u.vo] = []
+            users[u.vo].append(u)
+        e = Efficiency(config, opts.start, opts.end, opts.verbose, int(min_hours), float(eff), users, opts.isTest)
+        if vo == "FIFE" or users.has_key(vo.lower()):
+            r = e.reportVO(vo, opts.facility)
+            e.sendReport(vo, r)
+    except:
+        print >> sys.stderr, traceback.format_exc()
+        sys.exit(1)
+    sys.exit(0)

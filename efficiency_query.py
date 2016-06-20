@@ -1,13 +1,14 @@
 #!/usr/bin/python
 
+import json
 from elasticsearch import Elasticsearch
 from elasticsearch_dsl import Q,A, Search
 
 client = Elasticsearch(host='localhost',port=9200,timeout=60)
 
 
-starttimeq = '2016-06-01T07:30'
-endtimeq= '2016-06-02T07:30'
+starttimeq = '2016-06-18T07:30'
+endtimeq= '2016-06-19T07:30'
 wildcardVOq = 'dune'
 wildcardProbeNameq = 'condor:fifebatch?.fnal.gov'
 
@@ -21,19 +22,51 @@ s = Search(using=client,index='gracc.osg.raw-2016*')\
 
 #a=A('terms',field='ReportableVOName')
 	
-s.aggs.bucket('group_VOname','terms',field='ReportableVOName')
-s.aggs['group_VOname'].bucket('group_commonName','terms',field='CommonName')
+Bucket = s.aggs.bucket('group_VOname','terms',field='ReportableVOName').bucket('group_commonName','terms',field='CommonName')
 
+#Bucket.metric('Test_metric','sum',field='WallDuration')
+
+#Bucket.metric('Process_times_WallDur','scripted_metric',map_script="doc['WallDuration'].value*doc['Processors'].value")
+
+Metric = Bucket.metric('Process_times_WallDur','sum',script="(doc['WallDuration'].value*doc['Processors'].value)")\
+		.metric('WallHours','sum',script="(doc['WallDuration'].value*doc['Processors'].value)/3600")\
+		.metric('CPUDuration','sum',field='CpuDuration')
+Pipeline = Metric.pipeline('Test','bucket_script',buckets_path=['CPUDuration','WallHours'],script='CPUDuration/WallHours')  #Right now, failing because Processors isn't numeric.  Follow up with Kevin.  Up until here, it works
+
+#Pipeline = Metric.pipeline('Test','bucket_script',buckets_path="Process_times_WallDur",script="doc['CpuDuration']/(Process_times_WallDur*3600)")
+
+
+
+#Bucket.metric('Process_times_WallDur','scripted_metric',init_script="_agg['\"stuff\"] = [];",map_script="_agg.stuff.add(doc['WallDuration'].value * doc['Processors']);",\
+#		combine_script="number = 0; for (t in _agg.transactions) {number+=t}; return number;", \
+#		reduce_script = "number = 0 ; for (a in _aggs) {number += a}; return number;")
+		# *doc['WallDuration']")
 
 response = s.execute()
 t = s.to_dict()
 
-print t
-print response
+print json.dumps(t,sort_keys=True,indent=4)
 
-for i in response.aggregations.group_VOname.buckets:	
-	#.group_VOName.bucket:
-	print i.key,i.doc_count
+for line in response:
+	print response.to_dict().keys()
+
+#try:
+#	print response.to_dict()['WallDuration'], response.to_dict()['Processors']
+#except KeyError:
+#	print "Oh well"
+#	pass
+
+print json.dumps(response.to_dict(),sort_keys=True,indent=4)
+print json.dumps(response.aggregations.to_dict(),sort_keys=True,indent=4)
+
+
+#for item in response:
+#	print item.to_dict()
+	#['CommonName']
+
+#for i in response.aggregations:	
+#	#.group_VOName.bucket:
+#	print i.key,i.doc_count
 
 
 #a = A('terms',field='CommonName')

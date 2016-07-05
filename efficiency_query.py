@@ -1,13 +1,29 @@
 #!/usr/bin/python
 
 import json
-from elasticsearch import Elasticsearch
-from elasticsearch_dsl import Q,A, Search
 import certifi
 import logging
+import re
+from datetime import datetime
 
-logging.basicConfig(filename='example.log',level=logging.ERROR)
-logging.getLogger('elasticsearch.trace').addHandler(logging.StreamHandler())
+from elasticsearch import Elasticsearch
+from elasticsearch_dsl import Q,A, Search
+from indexpattern import indexpattern_generate
+
+
+
+outfile = 'efficiency.csv'
+
+#Header
+header = '{}\t{}\t{}\t{}\t{}\n'.format('VO',
+                                     'Host Description',
+                                     'Common Name',
+                                     'Wall Hours',
+                                     'Efficiency'
+                                     )
+
+with open(outfile,'w') as f:
+    f.write(header)
 
 client=Elasticsearch(['https://gracc.opensciencegrid.org/e'],
                      use_ssl = True,
@@ -17,23 +33,32 @@ client=Elasticsearch(['https://gracc.opensciencegrid.org/e'],
                      client_key = 'gracc_cert/gracc-reports-dev.key',
                      timeout = 60) 
 
+#Temporary
+start_time ='2016/07/04 00:00'
+end_time='2016/07/05 23:59'
 
-starttimeq ='2016-07-04T00:00'
-endtimeq='2016-07-05T23:59'
+
+start_date = re.split('[/ :]', start_time)
+starttimeq = datetime(*[int(elt) for elt in start_date]).isoformat()
+
+end_date = re.split('[/ :]', end_time)
+endtimeq = datetime(*[int(elt) for elt in end_date]).isoformat()
+
+
 vo = 'uboone'
 wildcardVOq = '*'+vo+'*'
 wildcardProbeNameq = 'condor:fifebatch?.fnal.gov'
 
-s = Search(using=client,index='gracc.osg.raw-2016*')\
-	.query("wildcard",VOName=wildcardVOq)\
-	.query("wildcard",ProbeName=wildcardProbeNameq)\
-	.filter("range",EndTime={"gte":starttimeq,"lt":endtimeq})\
-	.filter(Q({"range":{"WallDuration":{"gt":0}}}))\
-    .filter(Q({"term":{"Host_description":"GPGrid"}}))\
-    .filter(Q({"term":{"ResourceType":"Payload"}}))[0:0]
+
+s = Search(using = client,index = indexpattern_generate(start_date,end_date))\
+           .query("wildcard",VOName=wildcardVOq)\
+           .query("wildcard",ProbeName=wildcardProbeNameq)\
+           .filter("range",EndTime={"gte":starttimeq,"lt":endtimeq})\
+           .filter(Q({"range":{"WallDuration":{"gt":0}}}))\
+           .filter(Q({"term":{"Host_description":"GPGrid"}}))\
+           .filter(Q({"term":{"ResourceType":"Payload"}}))\
+           [0:0]       #Size 0 to return only aggregations
    
-
-
 Bucket = s.aggs.bucket('group_VOname','terms',field='ReportableVOName')\
         .bucket('group_HostDescription','terms',field='Host_description')\
         .bucket('group_commonName','terms',field='CommonName')
@@ -43,29 +68,40 @@ Metric = Bucket.metric('Process_times_WallDur','sum',script="(doc['WallDuration'
 		.metric('CPUDuration','sum',field='CpuDuration')
 #Pipeline = Metric.pipeline('Test','bucket_script',buckets_path=['CPUDuration','WallHours'],script='CPUDuration/WallHours')  #Right now, failing because Processors isn't numeric.  Follow up with Kevin.  Up until here, it works
 
-response = s.execute()
-t = s.to_dict()
 
 ##Query
-print json.dumps(t,sort_keys=True,indent=4)
+#t = s.to_dict()
+#print json.dumps(t,sort_keys=True,indent=4)
 
-#Response from query
-print json.dumps(response.to_dict(),sort_keys=True,indent=4)
-
+response = s.execute()
 resultset = response.aggregations
 
-for per_vo in resultset.group_VOname.buckets:
-    for per_hostdesc in per_vo.group_HostDescription.buckets:
-        #print per_hostdesc
-        for per_CN in per_hostdesc.group_commonName.buckets:
-            if per_CN.WallHours.value > 1000:  #Value from config file
-                print '{}\t{}\t{}\t{}\t{}\t{}'.format(vo,
-                                                      per_hostdesc.key,
-                                                      per_CN.key,
-                                                      per_CN.WallHours.value,
-                                                      per_CN.CPUDuration.value/3600.,
-                                                      (per_CN.CPUDuration.value/3600) / per_CN.WallHours.value
-                                                      )
+#Response from query
+#print json.dumps(response.to_dict(),sort_keys=True,indent=4)
+
+
+
+
+with open(outfile,'a') as f:
+    for per_vo in resultset.group_VOname.buckets:
+        for per_hostdesc in per_vo.group_HostDescription.buckets:
+            for per_CN in per_hostdesc.group_commonName.buckets:
+                if per_CN.WallHours.value > 1000:  #Value from config file
+                    outstring = '{}\t{}\t{}\t{}\t{}\n'.format(vo,
+                                                              per_hostdesc.key,
+                                                              per_CN.key,
+                                                              per_CN.WallHours.value,
+                                                              (per_CN.CPUDuration.value/3600) / per_CN.WallHours.value
+                                                              )  
+                    f.write(outstring)
+
+
+
+if __name__ == '__main__':
+    pass
+#   main()
+
+
 """
 SQL:
 

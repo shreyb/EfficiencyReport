@@ -64,11 +64,12 @@
                 }
             ],
             "must": [
-                {
+                {   
                     "regexp": {
-                        "ReportableVOName": "dune"
-                    }
-                },
+                        "ReportableVOName": "uboone"
+                    }   
+                },  
+                
                 {
                     "wildcard": {
                         "ProbeName": "condor:fifebatch?.fnal.gov"

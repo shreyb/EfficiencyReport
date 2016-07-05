@@ -3,12 +3,26 @@
 import json
 from elasticsearch import Elasticsearch
 from elasticsearch_dsl import Q,A, Search
+import certifi
+import logging
 
-client = Elasticsearch(host='localhost',port=9200,timeout=60)
+
+#client = Elasticsearch(host='localhost',port=9200,timeout=60)
+
+logging.basicConfig(filename='example.log',level=logging.ERROR)
+logging.getLogger('elasticsearch.trace').addHandler(logging.StreamHandler())
+
+client=Elasticsearch(['https://gracc.opensciencegrid.org/e'],
+                     use_ssl = True,
+                     verify_certs = True,
+                     ca_certs = certifi.where(),
+                     client_cert = 'gracc_cert/gracc-reports-dev.crt',
+                     client_key = 'gracc_cert/gracc-reports-dev.key',
+                     timeout = 60) 
 
 
-starttimeq = '2016-06-18T07:30'
-endtimeq= '2016-06-19T07:30'
+starttimeq ='2016-07-04T00:00'
+endtimeq='2016-07-05T00:00'
 wildcardVOq = 'dune'
 wildcardProbeNameq = 'condor:fifebatch?.fnal.gov'
 
@@ -17,8 +31,8 @@ s = Search(using=client,index='gracc.osg.raw-2016*')\
 	.query("wildcard",ProbeName=wildcardProbeNameq)\
 	.filter("range",EndTime={"gte":starttimeq,"lt":endtimeq})\
 	.filter(Q({"range":{"WallDuration":{"gt":0}}}))\
-	.filter(Q({"term":{"ResourceType":"Payload"}}))
-
+    .filter(Q({"term":{"ResourceType":"Payload"}}))[0:0]
+    
 
 #a=A('terms',field='ReportableVOName')
 	
@@ -31,7 +45,7 @@ Bucket = s.aggs.bucket('group_VOname','terms',field='ReportableVOName').bucket('
 Metric = Bucket.metric('Process_times_WallDur','sum',script="(doc['WallDuration'].value*doc['Processors'].value)")\
 		.metric('WallHours','sum',script="(doc['WallDuration'].value*doc['Processors'].value)/3600")\
 		.metric('CPUDuration','sum',field='CpuDuration')
-Pipeline = Metric.pipeline('Test','bucket_script',buckets_path=['CPUDuration','WallHours'],script='CPUDuration/WallHours')  #Right now, failing because Processors isn't numeric.  Follow up with Kevin.  Up until here, it works
+#Pipeline = Metric.pipeline('Test','bucket_script',buckets_path=['CPUDuration','WallHours'],script='CPUDuration/WallHours')  #Right now, failing because Processors isn't numeric.  Follow up with Kevin.  Up until here, it works
 
 #Pipeline = Metric.pipeline('Test','bucket_script',buckets_path="Process_times_WallDur",script="doc['CpuDuration']/(Process_times_WallDur*3600)")
 
@@ -45,10 +59,11 @@ Pipeline = Metric.pipeline('Test','bucket_script',buckets_path=['CPUDuration','W
 response = s.execute()
 t = s.to_dict()
 
-print json.dumps(t,sort_keys=True,indent=4)
+##Query
+#print json.dumps(t,sort_keys=True,indent=4)
 
-for line in response:
-	print response.to_dict().keys()
+#for line in response:
+#	print response.to_dict().keys()
 
 #try:
 #	print response.to_dict()['WallDuration'], response.to_dict()['Processors']
@@ -56,8 +71,10 @@ for line in response:
 #	print "Oh well"
 #	pass
 
-print json.dumps(response.to_dict(),sort_keys=True,indent=4)
-print json.dumps(response.aggregations.to_dict(),sort_keys=True,indent=4)
+#print json.dumps(response.to_dict(),sort_keys=True,indent=4)
+
+resultset = json.dumps(response.aggregations.to_dict(),sort_keys=True,indent=4)
+print resultset
 
 
 #for item in response:

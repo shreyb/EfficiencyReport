@@ -6,9 +6,6 @@ from elasticsearch_dsl import Q,A, Search
 import certifi
 import logging
 
-
-#client = Elasticsearch(host='localhost',port=9200,timeout=60)
-
 logging.basicConfig(filename='example.log',level=logging.ERROR)
 logging.getLogger('elasticsearch.trace').addHandler(logging.StreamHandler())
 
@@ -22,8 +19,9 @@ client=Elasticsearch(['https://gracc.opensciencegrid.org/e'],
 
 
 starttimeq ='2016-07-04T00:00'
-endtimeq='2016-07-05T00:00'
-wildcardVOq = '*uboone*'
+endtimeq='2016-07-05T23:59'
+vo = 'uboone'
+wildcardVOq = '*'+vo+'*'
 wildcardProbeNameq = 'condor:fifebatch?.fnal.gov'
 
 s = Search(using=client,index='gracc.osg.raw-2016*')\
@@ -31,9 +29,14 @@ s = Search(using=client,index='gracc.osg.raw-2016*')\
 	.query("wildcard",ProbeName=wildcardProbeNameq)\
 	.filter("range",EndTime={"gte":starttimeq,"lt":endtimeq})\
 	.filter(Q({"range":{"WallDuration":{"gt":0}}}))\
+    .filter(Q({"term":{"Host_description":"GPGrid"}}))\
     .filter(Q({"term":{"ResourceType":"Payload"}}))[0:0]
-    
-Bucket = s.aggs.bucket('group_VOname','terms',field='ReportableVOName').bucket('group_commonName','terms',field='CommonName')
+   
+
+
+Bucket = s.aggs.bucket('group_VOname','terms',field='ReportableVOName')\
+        .bucket('group_HostDescription','terms',field='Host_description')\
+        .bucket('group_commonName','terms',field='CommonName')
 
 Metric = Bucket.metric('Process_times_WallDur','sum',script="(doc['WallDuration'].value*doc['Processors'].value)")\
 		.metric('WallHours','sum',script="(doc['WallDuration'].value*doc['Processors'].value)/3600")\
@@ -44,47 +47,25 @@ response = s.execute()
 t = s.to_dict()
 
 ##Query
-#print json.dumps(t,sort_keys=True,indent=4)
+print json.dumps(t,sort_keys=True,indent=4)
 
-#for line in response:
-#	print response.to_dict().keys()
+#Response from query
+print json.dumps(response.to_dict(),sort_keys=True,indent=4)
 
-#try:
-#	print response.to_dict()['WallDuration'], response.to_dict()['Processors']
-#except KeyError:
-#	print "Oh well"
-#	pass
+resultset = response.aggregations
 
-#print json.dumps(response.to_dict(),sort_keys=True,indent=4)
-
-resultset = json.dumps(response.aggregations.to_dict(),sort_keys=True,indent=4)
-print resultset
-
-
-#for item in response:
-#	print item.to_dict()
-	#['CommonName']
-
-#for i in response.aggregations:	
-#	#.group_VOName.bucket:
-#	print i.key,i.doc_count
-
-
-#a = A('terms',field='CommonName')
-#print response.aggs.bucket('group_commonName',a)
-
-
-
-
-#print 'Total %d hits found' % response.hits.total
-#for h in response:
-#	print h
-
-#for line in s.scan():
-#	print line['RecordId'][0],line['EndTime'][0]
-#	print line
-#Returns 24114 lines as opposed to GRATIA 24115 without aggregations.  Can investigate if needed.
-
+for per_vo in resultset.group_VOname.buckets:
+    for per_hostdesc in per_vo.group_HostDescription.buckets:
+        #print per_hostdesc
+        for per_CN in per_hostdesc.group_commonName.buckets:
+            if per_CN.WallHours.value > 1000:  #Value from config file
+                print '{}\t{}\t{}\t{}\t{}\t{}'.format(vo,
+                                                      per_hostdesc.key,
+                                                      per_CN.key,
+                                                      per_CN.WallHours.value,
+                                                      per_CN.CPUDuration.value/3600.,
+                                                      (per_CN.CPUDuration.value/3600) / per_CN.WallHours.value
+                                                      )
 """
 SQL:
 
@@ -121,49 +102,3 @@ WHERE
 
 
 
-#{
-#  "query":{
-#    "bool":{
-#      "must":[
-#        {"regexp":{"ReportableVOName":"dune"}},
-#        {"wildcard":{"ProbeName":"condor:fifebatch?.fnal.gov"}}
-#      ],
-#      "filter":[
-#        {"range":{
-#          "EndTime":{
-#            "from":"2016-05-09T12:00",
-#            "to":"2016-05-10T12:00"
-#          }
-#        }},
-#        {"term":{"Resource.ResourceType":"BatchPilot"}},
-#        {"range":{
-#          "WallDuration.seconds":{"gt":0}
-#        }}
-#      ]
-#    }
-#  },
-#  "aggs":{
-#    "group_VOName":{
-#      "terms":{"field":"ReportableVOName"},
-#      
-#      "aggs":{
-#        "group_CommonName":{
-#          "terms":{"field":"CommonName"},
-#
-#          "aggs":{
-#            "Sum_wall_seconds":{
-#              "sum":{"field":"WallDuration.seconds"}
-#            },
-#            "Sum_Cpu_Duration":{
-#              "sum":{"field":"CpuDuration.seconds"}
-#                }
-#              }
-#            }
-#          }
-#        }
-#      }
-#    }
-#  }
-#
-#
-#}

@@ -23,11 +23,11 @@ client=Elasticsearch(['https://gracc.opensciencegrid.org/e'],
 
 starttimeq ='2016-07-04T00:00'
 endtimeq='2016-07-05T00:00'
-wildcardVOq = 'dune'
+wildcardVOq = '*uboone*'
 wildcardProbeNameq = 'condor:fifebatch?.fnal.gov'
 
 s = Search(using=client,index='gracc.osg.raw-2016*')\
-	.query("regexp",ReportableVOName=wildcardVOq)\
+	.query("wildcard",VOName=wildcardVOq)\
 	.query("wildcard",ProbeName=wildcardProbeNameq)\
 	.filter("range",EndTime={"gte":starttimeq,"lt":endtimeq})\
 	.filter(Q({"range":{"WallDuration":{"gt":0}}}))\

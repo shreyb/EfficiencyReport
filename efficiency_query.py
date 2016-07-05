@@ -58,7 +58,7 @@ t = s.to_dict()
 #print json.dumps(response.to_dict(),sort_keys=True,indent=4)
 
 resultset = json.dumps(response.aggregations.to_dict(),sort_keys=True,indent=4)
-print resultset[group_VOname][buckets][group_commonName][buckets]
+print resultset
 
 
 #for item in response:

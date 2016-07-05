@@ -33,28 +33,12 @@ s = Search(using=client,index='gracc.osg.raw-2016*')\
 	.filter(Q({"range":{"WallDuration":{"gt":0}}}))\
     .filter(Q({"term":{"ResourceType":"Payload"}}))[0:0]
     
-
-#a=A('terms',field='ReportableVOName')
-	
 Bucket = s.aggs.bucket('group_VOname','terms',field='ReportableVOName').bucket('group_commonName','terms',field='CommonName')
-
-#Bucket.metric('Test_metric','sum',field='WallDuration')
-
-#Bucket.metric('Process_times_WallDur','scripted_metric',map_script="doc['WallDuration'].value*doc['Processors'].value")
 
 Metric = Bucket.metric('Process_times_WallDur','sum',script="(doc['WallDuration'].value*doc['Processors'].value)")\
 		.metric('WallHours','sum',script="(doc['WallDuration'].value*doc['Processors'].value)/3600")\
 		.metric('CPUDuration','sum',field='CpuDuration')
 #Pipeline = Metric.pipeline('Test','bucket_script',buckets_path=['CPUDuration','WallHours'],script='CPUDuration/WallHours')  #Right now, failing because Processors isn't numeric.  Follow up with Kevin.  Up until here, it works
-
-#Pipeline = Metric.pipeline('Test','bucket_script',buckets_path="Process_times_WallDur",script="doc['CpuDuration']/(Process_times_WallDur*3600)")
-
-
-
-#Bucket.metric('Process_times_WallDur','scripted_metric',init_script="_agg['\"stuff\"] = [];",map_script="_agg.stuff.add(doc['WallDuration'].value * doc['Processors']);",\
-#		combine_script="number = 0; for (t in _agg.transactions) {number+=t}; return number;", \
-#		reduce_script = "number = 0 ; for (a in _aggs) {number += a}; return number;")
-		# *doc['WallDuration']")
 
 response = s.execute()
 t = s.to_dict()
@@ -89,27 +73,6 @@ print resultset
 #a = A('terms',field='CommonName')
 #print response.aggs.bucket('group_commonName',a)
 
-#a = aggs.bucket("group_CommonName",dd"terms",field='CommonName')
-
-#      "aggs":{
-#        "group_CommonName":{
-#          "terms":{"field":"CommonName"},
-#
-#          "aggs":{
-#            "Sum_wall_seconds":{
-#              "sum":{"field":"WallDuration.seconds"}
-#            },
-#            "Sum_Cpu_Duration":{
-#              "sum":{"field":"CpuDuration.seconds"}
-#                }
-#              }
-#            }
-#          }
-#        }
-#      }
-#    }
-#  }
-#
 
 
 

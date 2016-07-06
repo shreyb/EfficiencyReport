@@ -10,16 +10,24 @@ from TimeUtils import TimeUtils
 import NiceNum
 from MySQLUtils import MySQLUtils
 from Reporter import Reporter
+import certifi
+import re
+import json
+from datetime import datetime,timedelta
+
+from elasticsearch import Elasticsearch
+from elasticsearch_dsl import Q,A, Search
+from indexpattern import indexpattern_generate
 
 
 class User:
     def __init__(self, info):
         tmp = info.split(',')
-        # CSV format 'DARKSIDE, UNKNOWN, Fermigrid, /CN = fifegrid/CN = batch/CN = Shawn S. Westerdale/CN = UID:shawest, '
-        # '13411.2019444, 0.969314375191'
-        self.vo = tmp[0].lower().strip()
-        self.facility = tmp[2].strip()
-        self.email, self.user = self.parseCN(tmp[3].strip())
+        # CSV format DARKSIDE, Fermigrid, /CN = fifegrid/CN = batch/CN = Shawn S. Westerdale/CN = UID:shawest, 
+        # 13411.2019444, 0.969314375191
+        self.vo = tmp[0].lower()
+        self.facility = tmp[2]
+        self.email, self.user = self.parseCN(tmp[3])
         self.hours = int(float(tmp[4]))
         self.eff = round(float(tmp[5]), 2)
 
@@ -89,6 +97,82 @@ class Efficiency(Reporter):
         os.remove(fn)
 
 
+def es_efficiency_to_file(start_time, end_time, vo, verbose = False):
+    """Function that queries elasticsearch (GRACC) for data.  Returns the csv file with aggregated data"""
+    outfile = 'efficiency.csv'
+    # Header
+    header = '{}\t{}\t{}\t{}\t{}\n'.format('VO',
+                                         'Host Description',
+                                         'Common Name',
+                                         'Wall Hours',
+                                         'Efficiency'
+                                         )
+
+    with open(outfile,'w') as f:
+        f.write(header)
+
+    client=Elasticsearch(['https://gracc.opensciencegrid.org/e'],
+                         use_ssl = True,
+                         verify_certs = True,
+                         ca_certs = certifi.where(),
+                         client_cert = 'gracc_cert/gracc-reports-dev.crt',
+                         client_key = 'gracc_cert/gracc-reports-dev.key',
+                         timeout = 60)
+
+    start_date = re.split('[/ :]', start_time)
+    starttimeq = datetime(*[int(elt) for elt in start_date]).isoformat()
+
+    end_date = re.split('[/ :]', end_time)
+    endtimeq = (datetime(*[int(elt) for elt in end_date])+timedelta(days=1)).isoformat()
+
+    wildcardVOq = '*'+vo+'*'
+    wildcardProbeNameq = 'condor:fifebatch?.fnal.gov'
+
+
+    s = Search(using = client,index = indexpattern_generate(start_date,end_date))\
+               .query("wildcard",VOName=wildcardVOq)\
+               .query("wildcard",ProbeName=wildcardProbeNameq)\
+               .filter("range",EndTime={"gte":starttimeq,"lt":endtimeq})\
+               .filter(Q({"range":{"WallDuration":{"gt":0}}}))\
+               .filter(Q({"term":{"Host_description":"GPGrid"}}))\
+               .filter(Q({"term":{"ResourceType":"Payload"}}))\
+               [0:0]       #Size 0 to return only aggregations
+           
+    Bucket = s.aggs.bucket('group_VOname','terms',field='ReportableVOName')\
+            .bucket('group_HostDescription','terms',field='Host_description')\
+            .bucket('group_commonName','terms',field='CommonName')
+
+    Metric = Bucket.metric('Process_times_WallDur','sum',script="(doc['WallDuration'].value*doc['Processors'].value)")\
+            .metric('WallHours','sum',script="(doc['WallDuration'].value*doc['Processors'].value)/3600")\
+            .metric('CPUDuration','sum',field='CpuDuration')
+    #Pipeline = Metric.pipeline('Test','bucket_script',buckets_path=['CPUDuration','WallHours'],script='CPUDuration/WallHours')  #Right now, failing because Processors isn't numeric.  Follow up with Kevin.  Up until here, it works
+ 
+    if verbose:
+        t = s.to_dict()
+        print json.dumps(t,sort_keys=True,indent=4)
+
+    response = s.execute()
+    resultset = response.aggregations
+
+    if verbose:
+        print json.dumps(response.to_dict(),sort_keys=True,indent=4)
+    
+    with open(outfile,'a') as f:
+        for per_vo in resultset.group_VOname.buckets:
+            for per_hostdesc in per_vo.group_HostDescription.buckets:
+                for per_CN in per_hostdesc.group_commonName.buckets:
+                    if per_CN.WallHours.value > 1000:  #Value from config file
+                        outstring = '{},\t{},\t{},\t{},\t{}\n'.format(vo,
+                                                                  per_hostdesc.key,
+                                                                  per_CN.key,
+                                                                  per_CN.WallHours.value,
+                                                                  (per_CN.CPUDuration.value/3600) / per_CN.WallHours.value
+                                                                  )
+                        f.write(outstring)
+
+    return outfile
+
+
 def parse_opts():
     """Parses command line options"""
     usage = "Usage: %prog [options]"
@@ -128,7 +212,8 @@ if __name__ == "__main__":
         eff = config.config.get(opts.vo.lower(), "efficiency")
         min_hours = config.config.get(opts.vo.lower(), "min_hours")
        
-        #This is the area that generates the CSV file.  Replace it with a function that generates the CSV
+        
+    #This is the area that generates the CSV file.  Replace it with a function that generates the CSV
        #command = config.config.get("query", "curl")
        # command = command.replace("$START", opts.start.split()[0])
        # command = command.replace("$END", opts.end.split()[0])
@@ -136,19 +221,24 @@ if __name__ == "__main__":
        # command = command.replace("$MIN_HOURS", min_hours)
        # MySQLUtils.executeCmd("curl %s > efficiency.csv" % (command,), True)
         
+        resultfile = es_efficiency_to_file(opts.start, opts.end, opts.vo, opts.verbose)
 
-        f = open("efficiency.csv").readlines()
-        users = {}
-        for line in f[1:]:
-            #Replace next line, since we can tailor the output
-            u = User(line[:-1].replace("(", '').replace(")", '').replace("'", ""))
-            if not users.has_key(u.vo):
-                users[u.vo] = []
-            users[u.vo].append(u)
-        e = Efficiency(config, opts.start, opts.end, opts.verbose, int(min_hours), float(eff), users, opts.isTest)
-        if vo == "FIFE" or users.has_key(vo.lower()):
-            r = e.reportVO(vo, opts.facility)
-            e.sendReport(vo, r)
+    #WHERE I LEFT OFF
+
+#        with open(resultfile,'r') as file:
+#            f = file.readlines()
+#        users = {}
+#        for line in f[1:]:
+#            #Replace next line, since we can tailor the output
+#            u = User(line)
+#            #u = User(line[:-1].replace("(", '').replace(")", '').replace("'", ""))
+#            if not users.has_key(u.vo):
+#                users[u.vo] = []
+#            users[u.vo].append(u)
+#        e = Efficiency(config, opts.start, opts.end, opts.verbose, int(min_hours), float(eff), users, opts.isTest)
+#        if vo == "FIFE" or users.has_key(vo.lower()):
+#            r = e.reportVO(vo, opts.facility)
+#            e.sendReport(vo, r)
     except:
         print >> sys.stderr, traceback.format_exc()
         sys.exit(1)

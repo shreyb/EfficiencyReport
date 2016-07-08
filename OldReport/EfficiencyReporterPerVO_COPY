@@ -66,6 +66,7 @@ class Efficiency(Reporter):
                 if facility == "all" or rec.facility == facility:
 		   
                     info.append(rec)
+        print "ReportVO done"
         return sorted(info, key=lambda user: user.eff)
 
     def sendReport(self, vo, report):
@@ -225,20 +226,20 @@ if __name__ == "__main__":
 
     #WHERE I LEFT OFF
 
-#        with open(resultfile,'r') as file:
-#            f = file.readlines()
-#        users = {}
-#        for line in f[1:]:
-#            #Replace next line, since we can tailor the output
-#            u = User(line)
-#            #u = User(line[:-1].replace("(", '').replace(")", '').replace("'", ""))
-#            if not users.has_key(u.vo):
-#                users[u.vo] = []
-#            users[u.vo].append(u)
-#        e = Efficiency(config, opts.start, opts.end, opts.verbose, int(min_hours), float(eff), users, opts.isTest)
-#        if vo == "FIFE" or users.has_key(vo.lower()):
-#            r = e.reportVO(vo, opts.facility)
-#            e.sendReport(vo, r)
+        with open(resultfile,'r') as file:
+            f = file.readlines()
+        users = {}
+        for line in f[1:]:
+            #Replace next line, since we can tailor the output
+            u = User(line)
+            #u = User(line[:-1].replace("(", '').replace(")", '').replace("'", ""))
+            if not users.has_key(u.vo):
+                users[u.vo] = []
+            users[u.vo].append(u)
+        e = Efficiency(config, opts.start, opts.end, opts.verbose, int(min_hours), float(eff), users, opts.isTest)
+        if vo == "FIFE" or users.has_key(vo.lower()):
+            r = e.reportVO(vo, opts.facility)
+            #e.sendReport(vo, r)
     except:
         print >> sys.stderr, traceback.format_exc()
         sys.exit(1)

@@ -79,10 +79,11 @@ class Efficiency(Reporter):
         text = text.replace("$TABLE", table)
         text = text.replace("$VO", vo.upper())
         
-        fn = "{}-efficiency.{}".format(vo.lower(), self.start_time.replace("/", "-"))
-        f = open(fn, "w")
-        f.write(text)
-        f.close()
+        if self.verbose:
+            fn = "{}-efficiency.{}".format(vo.lower(), self.start_time.replace("/", "-"))
+            with open(fn,'w') as f:
+                f.write(text)
+        
         if self.isTest:
             emails = self.config.get("email", "test_to").split(",")
         else:
@@ -97,9 +98,12 @@ class Efficiency(Reporter):
                             {"html": text},
                             ("Gratia Operation", "tlevshin@fnal.gov"),
                             "smtp.fnal.gov")
-        f.close()
-        os.remove(fn)
+        
+        if self.verbose:
+            os.remove(fn)
+        
         print "Report sent"
+
 
 def es_efficiency_to_file(start_time, end_time, vo, verbose = False):
     """Function that queries elasticsearch (GRACC) for data.  Returns the csv file with aggregated data"""

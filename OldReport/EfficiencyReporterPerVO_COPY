@@ -25,16 +25,17 @@ class User:
         tmp = info.split(',')
         # CSV format DARKSIDE, Fermigrid, /CN = fifegrid/CN = batch/CN = Shawn S. Westerdale/CN = UID:shawest, 
         # 13411.2019444, 0.969314375191
+        # New CSV format 'uboone', 'GPGrid', '/CN=fifegrid/CN=batch/CN=Elena Gramellini/CN=UID:elenag', '1337.86666667', '0.857747616437'        
         self.vo = tmp[0].lower()
-        self.facility = tmp[2]
-        self.email, self.user = self.parseCN(tmp[3])
-        self.hours = int(float(tmp[4]))
-        self.eff = round(float(tmp[5]), 2)
+        self.facility = tmp[1]
+        self.email, self.user = self.parseCN(tmp[2])
+        self.hours = int(float(tmp[3]))
+        self.eff = round(float(tmp[4]), 2)
 
     def parseCN(self, cn):
         indx = cn.find("/CN=UID:")
         if indx > 0:
-            email = '%s@fnal.gov' % (cn[indx + len("/CN=UID:"):],)
+            email = '{}@fnal.gov'.format(cn[indx + len("/CN=UID:"):])
         else:
             email = ""
             indx = cn.rfind('/')
@@ -42,7 +43,7 @@ class User:
         return email, user
 
     def dump(self):
-        print "%10s, %20s, %20s, %s, %s" % (self.vo, self.facility, self.user, int(self.hours), round(self.eff, 2))
+        print "{:>10}, {:>20}, {:>20}, {}, {}".format(self.vo, self.facility, self.user, int(self.hours), round(self.eff, 2))
 
 
 class Efficiency(Reporter):
@@ -64,25 +65,25 @@ class Efficiency(Reporter):
         for rec in records:
             if rec.hours > self.hour_limit and rec.eff < self.eff_limit:
                 if facility == "all" or rec.facility == facility:
-		   
                     info.append(rec)
-        print "ReportVO done"
         return sorted(info, key=lambda user: user.eff)
 
     def sendReport(self, vo, report):
         table = ""
         if len(report) == 0:
+            print "Report empty"
             return
         for u in report:
-            table += '<tr><td align="left">%s</td><td align="left">%s</td>' % (u.vo.upper(), u.facility,) + \
-                     '<td align="left">%s</td><td align="right">%s</td><td align="right">%s</td></tr>' % \
-                     (u.user, NiceNum.niceNum(u.hours), u.eff)
+            table += '<tr><td align="left">{}</td><td align="left">{}</td>'.format(u.vo.upper(), u.facility) + \
+                     '<td align="left">{}</td><td align="right">{}</td><td align="right">{}</td></tr>'.format(
+                             u.user, NiceNum.niceNum(u.hours), u.eff)
+        print table
         text = "".join(open("template_efficiency.html").readlines())
         text = text.replace("$START", self.start_time)
         text = text.replace("$END", self.end_time)
         text = text.replace("$TABLE", table)
         text = text.replace("$VO", vo.upper())
-        fn = "%s-efficiency.%s" % (vo.lower(), self.start_time.replace("/", "-"))
+        fn = "{}-efficiency.{}".format(vo.lower(), self.start_time.replace("/", "-"))
         f = open(fn, "w")
         f.write(text)
         f.close()
@@ -90,13 +91,19 @@ class Efficiency(Reporter):
             emails = self.config.get("email", "test_to").split(",")
         else:
             emails = self.config.get(vo.lower(), "email").split(",") + self.config.get("email", "test_to").split(",")
-        TextUtils.sendEmail(([], emails), "%s Jobs with Low Efficiency (%s)  on the  OSG Sites (%s - %s)" % (
-            vo, self.eff_limit, self.start_time, self.end_time), {"html": text},
+        TextUtils.sendEmail(
+                            ([], emails), 
+                            "{} Jobs with Low Efficiency ({})  on the  OSG Sites ({} - {})".format(
+                                                                                                    vo, 
+                                                                                                    self.eff_limit, 
+                                                                                                    self.start_time, 
+                                                                                                    self.end_time), 
+                            {"html": text},
                             ("Gratia Operation", "tlevshin@fnal.gov"),
                             "smtp.fnal.gov")
         f.close()
         os.remove(fn)
-
+        print "Report sent"
 
 def es_efficiency_to_file(start_time, end_time, vo, verbose = False):
     """Function that queries elasticsearch (GRACC) for data.  Returns the csv file with aggregated data"""
@@ -163,7 +170,7 @@ def es_efficiency_to_file(start_time, end_time, vo, verbose = False):
             for per_hostdesc in per_vo.group_HostDescription.buckets:
                 for per_CN in per_hostdesc.group_commonName.buckets:
                     if per_CN.WallHours.value > 1000:  #Value from config file
-                        outstring = '{},\t{},\t{},\t{},\t{}\n'.format(vo,
+                        outstring = '{},{},{},{},{}\n'.format(vo,
                                                                   per_hostdesc.key,
                                                                   per_CN.key,
                                                                   per_CN.WallHours.value,
@@ -204,12 +211,12 @@ def parse_opts():
 if __name__ == "__main__":
     opts, args = parse_opts()
     try:
-       #Set up the configuration 
+       # Set up the configuration 
         config = Configuration.Configuration()
         config.configure(opts.config)
-       #Grab VO
+       # Grab VO
         vo = opts.vo
-       # grab the limits
+       # Grab the limits
         eff = config.config.get(opts.vo.lower(), "efficiency")
         min_hours = config.config.get(opts.vo.lower(), "min_hours")
        
@@ -221,25 +228,25 @@ if __name__ == "__main__":
        # command = command.replace("$VO", opts.vo.lower())
        # command = command.replace("$MIN_HOURS", min_hours)
        # MySQLUtils.executeCmd("curl %s > efficiency.csv" % (command,), True)
-        
-        resultfile = es_efficiency_to_file(opts.start, opts.end, opts.vo, opts.verbose)
 
-    #WHERE I LEFT OFF
+        # Run our elasticsearch query, get results as CSV 
+        resultfile = es_efficiency_to_file(opts.start, opts.end, opts.vo, opts.verbose)
 
         with open(resultfile,'r') as file:
             f = file.readlines()
         users = {}
         for line in f[1:]:
-            #Replace next line, since we can tailor the output
             u = User(line)
             #u = User(line[:-1].replace("(", '').replace(")", '').replace("'", ""))
             if not users.has_key(u.vo):
                 users[u.vo] = []
             users[u.vo].append(u)
+        print users
         e = Efficiency(config, opts.start, opts.end, opts.verbose, int(min_hours), float(eff), users, opts.isTest)
         if vo == "FIFE" or users.has_key(vo.lower()):
             r = e.reportVO(vo, opts.facility)
-            #e.sendReport(vo, r)
+            print r
+            e.sendReport(vo, r)
     except:
         print >> sys.stderr, traceback.format_exc()
         sys.exit(1)

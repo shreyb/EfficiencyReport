@@ -4,28 +4,30 @@ import os
 import optparse
 import traceback
 import operator
+import certifi
+import re
+import json
+from datetime import datetime,timedelta
+from elasticsearch import Elasticsearch
+from elasticsearch_dsl import Q,A, Search
+
 import TextUtils
 import Configuration
 from TimeUtils import TimeUtils
 import NiceNum
 from MySQLUtils import MySQLUtils
 from Reporter import Reporter
-import certifi
-import re
-import json
-from datetime import datetime,timedelta
-
-from elasticsearch import Elasticsearch
-from elasticsearch_dsl import Q,A, Search
 from indexpattern import indexpattern_generate
 
 
 class User:
     def __init__(self, info):
-        tmp = info.split(',')
+        """Take CSV as described below and assigns to it the attributes vo, facility, email, user, hours, eff 
         # CSV format DARKSIDE, Fermigrid, /CN = fifegrid/CN = batch/CN = Shawn S. Westerdale/CN = UID:shawest, 
         # 13411.2019444, 0.969314375191
         # New CSV format 'uboone', 'GPGrid', '/CN=fifegrid/CN=batch/CN=Elena Gramellini/CN=UID:elenag', '1337.86666667', '0.857747616437'        
+        """
+        tmp = info.split(',')
         self.vo = tmp[0].lower()
         self.facility = tmp[1]
         self.email, self.user = self.parseCN(tmp[2])
@@ -33,6 +35,7 @@ class User:
         self.eff = round(float(tmp[4]), 2)
 
     def parseCN(self, cn):
+        """Parse the CN to grab the email address and user"""
         indx = cn.find("/CN=UID:")
         if indx > 0:
             email = '{}@fnal.gov'.format(cn[indx + len("/CN=UID:"):])
@@ -55,6 +58,7 @@ class Efficiency(Reporter):
         self.isTest = isTest
 
     def reportVO(self, vo, facility):
+        """Method to generate report for VO from users dictionary"""
         if vo == "FIFE":
             records = [rec for rec in self.users.values()]
         else:
@@ -63,6 +67,7 @@ class Efficiency(Reporter):
         return sorted(info, key=lambda user: user.eff)
 
     def sendReport(self, vo, report):
+        """Generate HTML from report and send the email"""
         if len(report) == 0:
             print "Report empty"
             return
@@ -137,7 +142,6 @@ def es_efficiency_to_file(start_time, end_time, vo, verbose = False):
     wildcardProbeNameq = 'condor:fifebatch?.fnal.gov'
 
 
-    #s = Search(using = client,index = 'gracc.osg.query-2016.07')\
     s = Search(using = client,index = indexpattern_generate(start_date,end_date))\
                .query("wildcard",VOName=wildcardVOq)\
                .query("wildcard",ProbeName=wildcardProbeNameq)\

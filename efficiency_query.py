@@ -50,6 +50,7 @@ wildcardVOq = '*'+vo+'*'
 wildcardProbeNameq = 'condor:fifebatch?.fnal.gov'
 
 
+#s = Search(using = client,index = 'gracc.osg.query-2016.07')\
 s = Search(using = client,index = indexpattern_generate(start_date,end_date))\
            .query("wildcard",VOName=wildcardVOq)\
            .query("wildcard",ProbeName=wildcardProbeNameq)\

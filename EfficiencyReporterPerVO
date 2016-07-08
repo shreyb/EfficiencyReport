@@ -58,14 +58,10 @@ class Efficiency(Reporter):
         info = []
         records = []
         if vo == "FIFE":
-            for rec in self.users.values():
-                records = records + rec
+            records = [rec for rec in self.users.values()]
         else:
             records = self.users[vo.lower()]
-        for rec in records:
-            if rec.hours > self.hour_limit and rec.eff < self.eff_limit:
-                if facility == "all" or rec.facility == facility:
-                    info.append(rec)
+        info = [rec for rec in records if ((rec.hours > self.hour_limit and rec.eff < self.eff_limit) and (facility == "all" or rec.facility == facility))]
         return sorted(info, key=lambda user: user.eff)
 
     def sendReport(self, vo, report):
@@ -77,7 +73,7 @@ class Efficiency(Reporter):
             table += '<tr><td align="left">{}</td><td align="left">{}</td>'.format(u.vo.upper(), u.facility) + \
                      '<td align="left">{}</td><td align="right">{}</td><td align="right">{}</td></tr>'.format(
                              u.user, NiceNum.niceNum(u.hours), u.eff)
-        print table
+        #print table
         text = "".join(open("template_efficiency.html").readlines())
         text = text.replace("$START", self.start_time)
         text = text.replace("$END", self.end_time)
@@ -242,11 +238,9 @@ if __name__ == "__main__":
             if not users.has_key(u.vo):
                 users[u.vo] = []
             users[u.vo].append(u)
-        print users
         e = Efficiency(config, opts.start, opts.end, opts.verbose, int(min_hours), float(eff), users, opts.isTest)
         if vo == "FIFE" or users.has_key(vo.lower()):
             r = e.reportVO(vo, opts.facility)
-            print r
             e.sendReport(vo, r)
     except:
         print >> sys.stderr, traceback.format_exc()

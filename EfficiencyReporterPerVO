@@ -55,8 +55,6 @@ class Efficiency(Reporter):
         self.isTest = isTest
 
     def reportVO(self, vo, facility):
-        info = []
-        records = []
         if vo == "FIFE":
             records = [rec for rec in self.users.values()]
         else:
@@ -65,20 +63,22 @@ class Efficiency(Reporter):
         return sorted(info, key=lambda user: user.eff)
 
     def sendReport(self, vo, report):
-        table = ""
         if len(report) == 0:
             print "Report empty"
             return
+        
+        table = ""
         for u in report:
             table += '<tr><td align="left">{}</td><td align="left">{}</td>'.format(u.vo.upper(), u.facility) + \
                      '<td align="left">{}</td><td align="right">{}</td><td align="right">{}</td></tr>'.format(
-                             u.user, NiceNum.niceNum(u.hours), u.eff)
-        #print table
+                                                                        u.user, NiceNum.niceNum(u.hours), u.eff)
+        
         text = "".join(open("template_efficiency.html").readlines())
         text = text.replace("$START", self.start_time)
         text = text.replace("$END", self.end_time)
         text = text.replace("$TABLE", table)
         text = text.replace("$VO", vo.upper())
+        
         fn = "{}-efficiency.{}".format(vo.lower(), self.start_time.replace("/", "-"))
         f = open(fn, "w")
         f.write(text)

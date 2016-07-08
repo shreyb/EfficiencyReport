@@ -35,7 +35,7 @@ class User:
     def parseCN(self, cn):
         indx = cn.find("/CN=UID:")
         if indx > 0:
-            email = '%s@fnal.gov'.%(cn[indx + len("/CN=UID:"):],)
+            email = '{}@fnal.gov'.format(cn[indx + len("/CN=UID:"):])
         else:
             email = ""
             indx = cn.rfind('/')

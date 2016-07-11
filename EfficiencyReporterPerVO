@@ -132,10 +132,10 @@ def es_efficiency_to_file(start_time, end_time, vo, verbose = False):
                          client_key = 'gracc_cert/gracc-reports-dev.key',
                          timeout = 60)
 
-    start_date = re.split('[/ :]', start_time)
+    start_date = re.split('[-/ :]', start_time)
     starttimeq = datetime(*[int(elt) for elt in start_date]).isoformat()
 
-    end_date = re.split('[/ :]', end_time)
+    end_date = re.split('[-/ :]', end_time)
     endtimeq = (datetime(*[int(elt) for elt in end_date])+timedelta(days=1)).isoformat()
 
     wildcardVOq = '*'+vo+'*'
@@ -202,9 +202,9 @@ def parse_opts():
                       dest="facility", type="string",
                       help="facility  name")
     parser.add_option("-s", "--start", type="string",
-                      dest="start", help="report start date YYYY/MM/DD HH:MM:DD (required)")
+                      dest="start", help="report start date YYYY/MM/DD HH:MM:DD or YYYY-MM-DD HH:MM:DD (required)")
     parser.add_option("-e", "--end", type="string",
-                      dest="end", help="report end date YYYY/MM/DD")
+                      dest="end", help="report end date YYYY/MM/DD HH:MM:DD or YYYY-MM-DD HH:MM:DD")
     parser.add_option("-d", "--dryrun", action="store_true", dest="isTest", default=False,
                       help="send emails only to testers")
 

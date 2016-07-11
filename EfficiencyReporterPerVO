@@ -125,6 +125,7 @@ def es_efficiency_to_file(start_time, end_time, vo, verbose = False):
         f.write(header)
 
     client=Elasticsearch(['https://gracc.opensciencegrid.org/e'],
+    #client=Elasticsearch(['https://fifemon-es.fnal.gov'],
                          use_ssl = True,
                          verify_certs = True,
                          ca_certs = certifi.where(),

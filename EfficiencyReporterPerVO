@@ -7,9 +7,9 @@ import operator
 import certifi
 import re
 import json
-from datetime import datetime,timedelta
+from datetime import datetime, timedelta
 from elasticsearch import Elasticsearch
-from elasticsearch_dsl import Q,A, Search
+from elasticsearch_dsl import Q, A, Search
 
 import TextUtils
 import Configuration
@@ -90,9 +90,9 @@ class Efficiency(Reporter):
                 f.write(text)
         
         if self.isTest:
-            emails = self.config.get("email", "test_to").split(",")
+            emails = re.split('[; ,]',self.config.get("email", "test_to"))
         else:
-            emails = self.config.get(vo.lower(), "email").split(",") + self.config.get("email", "test_to").split(",")
+            emails = re.split('[; ,]',self.config.get(vo.lower(), "email")) + re.split('[; ,]',self.config.get("email", "test_to"))
         TextUtils.sendEmail(
                             ([], emails), 
                             "{} Jobs with Low Efficiency ({})  on the  OSG Sites ({} - {})".format(
@@ -113,17 +113,8 @@ class Efficiency(Reporter):
 def es_efficiency_to_file(start_time, end_time, vo, verbose = False):
     """Function that queries elasticsearch (GRACC) for data.  Returns the csv file with aggregated data"""
     outfile = 'efficiency.csv'
-    # Header
-    header = '{}\t{}\t{}\t{}\t{}\n'.format('VO',
-                                         'Host Description',
-                                         'Common Name',
-                                         'Wall Hours',
-                                         'Efficiency'
-                                         )
-
-    with open(outfile,'w') as f:
-        f.write(header)
-
+    
+    # Initialize the elasticsearch client
     client=Elasticsearch(['https://fifemon-es.fnal.gov'],
                          use_ssl = True,
                          verify_certs = True,
@@ -131,17 +122,18 @@ def es_efficiency_to_file(start_time, end_time, vo, verbose = False):
                          client_cert = 'gracc_cert/gracc-reports-dev.crt',
                          client_key = 'gracc_cert/gracc-reports-dev.key',
                          timeout = 60)
-
+    
+    # Gather parameters, format them for the query
     start_date = re.split('[-/ :]', start_time)
     starttimeq = datetime(*[int(elt) for elt in start_date]).isoformat()
 
     end_date = re.split('[-/ :]', end_time)
-    endtimeq = (datetime(*[int(elt) for elt in end_date])+timedelta(days=1)).isoformat()
+    endtimeq = (datetime(*[int(elt) for elt in end_date])).isoformat()
 
     wildcardVOq = '*'+vo+'*'
     wildcardProbeNameq = 'condor:fifebatch?.fnal.gov'
 
-
+    # Elasticsearch query and aggregations
     s = Search(using = client,index = indexpattern_generate(start_date,end_date))\
                .query("wildcard",VOName=wildcardVOq)\
                .query("wildcard",ProbeName=wildcardProbeNameq)\
@@ -169,8 +161,19 @@ def es_efficiency_to_file(start_time, end_time, vo, verbose = False):
 
     if verbose:
         print json.dumps(response.to_dict(),sort_keys=True,indent=4)
-    
-    with open(outfile,'a') as f:
+   
+    # Header
+    header = '{}\t{}\t{}\t{}\t{}\n'.format('VO',
+                                         'Host Description',
+                                         'Common Name',
+                                         'Wall Hours',
+                                         'Efficiency'
+                                         )
+
+
+   # Write everything to the outfile 
+    with open(outfile,'w') as f:
+        f.write(header)
         for per_vo in resultset.group_VOname.buckets:
             for per_hostdesc in per_vo.group_HostDescription.buckets:
                 for per_CN in per_hostdesc.group_commonName.buckets:
@@ -202,9 +205,9 @@ def parse_opts():
                       dest="facility", type="string",
                       help="facility  name")
     parser.add_option("-s", "--start", type="string",
-                      dest="start", help="report start date YYYY/MM/DD HH:MM:DD or YYYY-MM-DD HH:MM:DD (required)")
+                    dest="start", help="report start date YYYY/MM/DD HH:mm:ss or YYYY-MM-DD HH:mm:ss (required)")
     parser.add_option("-e", "--end", type="string",
-                      dest="end", help="report end date YYYY/MM/DD HH:MM:DD or YYYY-MM-DD HH:MM:DD")
+                    dest="end", help="report end date YYYY/MM/DD HH:mm:ss or YYYY-MM-DD HH:mm:ss")
     parser.add_option("-d", "--dryrun", action="store_true", dest="isTest", default=False,
                       help="send emails only to testers")
 

@@ -11,7 +11,7 @@ cd /home/sbhat/EfficiencyReport
 for vo in ${VOS}
 do
 	echo $vo
-	./EfficiencyReporterPerVO -F GPGrid -c efficiency.config -E $vo -s "$YESTERDAY" -e "$TODAY" -d -v
+	./EfficiencyReporterPerVO -F GPGrid -c efficiency.config -E $vo -s "$YESTERDAY" -e "$TODAY" -d
 	echo "Sent report for $vo"
 done
 

@@ -162,7 +162,7 @@ def es_efficiency_to_file(start_time, end_time, vo, verbose = False):
     if verbose:
         print json.dumps(response.to_dict(),sort_keys=True,indent=4)
    
-    # Header
+    # Header for file
     header = '{}\t{}\t{}\t{}\t{}\n'.format('VO',
                                          'Host Description',
                                          'Common Name',
@@ -239,7 +239,8 @@ if __name__ == "__main__":
 
         # Run our elasticsearch query, get results as CSV 
         resultfile = es_efficiency_to_file(opts.start, opts.end, opts.vo, opts.verbose)
-
+        
+        # For each line returned, create a User object, and add the User and their vo to the users dict
         with open(resultfile,'r') as file:
             f = file.readlines()
         users = {}
@@ -249,6 +250,8 @@ if __name__ == "__main__":
             if not users.has_key(u.vo):
                 users[u.vo] = []
             users[u.vo].append(u)
+
+        # Create an Efficiency object, create a report for the VO, and send it
         e = Efficiency(config, opts.start, opts.end, opts.verbose, int(min_hours), float(eff), users, opts.isTest)
         if vo == "FIFE" or users.has_key(vo.lower()):
             r = e.reportVO(vo, opts.facility)

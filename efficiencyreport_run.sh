@@ -1,6 +1,6 @@
 #!/bin/sh
 
-VOS="nova seaquest minerva minos gm2 mu2e uboone darkside dune cdms mars cdf" 
+VOS="NOvA Seaquest Minerva Minos gm2 Mu2e UBooNe Darkside DUNE CDMS Mars CDF" 
 YESTERDAY=`date --date yesterday +"%F %T"`
 TODAY=`date +"%F %T"`
 

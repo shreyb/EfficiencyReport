@@ -130,7 +130,7 @@ def es_efficiency_to_file(start_time, end_time, vo, verbose = False):
     end_date = re.split('[-/ :]', end_time)
     endtimeq = (datetime(*[int(elt) for elt in end_date])).isoformat()
 
-    wildcardVOq = '*'+vo+'*'
+    wildcardVOq = '*'+vo.lower()+'*'
     wildcardProbeNameq = 'condor:fifebatch?.fnal.gov'
 
     # Elasticsearch query and aggregations

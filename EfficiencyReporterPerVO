@@ -132,7 +132,7 @@ class Efficiency(Reporter):
             for per_vo in resultset.group_VOname.buckets:
                 for per_hostdesc in per_vo.group_HostDescription.buckets:
                     for per_CN in per_hostdesc.group_commonName.buckets:
-                        if per_CN.WallHours.value > 1000:  #Value from config file
+                        if per_CN.WallHours.value > self.hour_limit:  #Value from config file
                             outstring = '{},{},{},{},{}\n'.format(vo,
                                                                       per_hostdesc.key,
                                                                       per_CN.key,

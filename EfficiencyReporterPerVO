@@ -50,22 +50,108 @@ class User:
 
 
 class Efficiency(Reporter):
-    def __init__(self, config, start, end, verbose, hour_limit, eff_limit, users, isTest):
-        Reporter.__init__(self, config, start, end, verbose)
+    def __init__(self, config, start, end, verbose, hour_limit, eff_limit, isTest):
+        Reporter.__init__(self, config, start, end, verbose = False)
         self.hour_limit = hour_limit
         self.eff_limit = eff_limit
-        self.users = users
         self.isTest = isTest
+        self.verbose = verbose
+    
+    def query(self, vo):
+        """Method to query Elasticsearch cluster for EfficiencyReport information"""
+        # Initialize the elasticsearch client
+        client=Elasticsearch(['https://fifemon-es.fnal.gov'],
+                             use_ssl = True,
+                             verify_certs = True,
+                             ca_certs = '/etc/grid-security/certificates/cilogon-osg.pem',
+                             client_cert = 'gracc_cert/gracc-reports-dev.crt',
+                             client_key = 'gracc_cert/gracc-reports-dev.key',
+                             timeout = 60)
+        
+        # Gather parameters, format them for the query
+        start_date = re.split('[-/ :]', self.start_time)
+        starttimeq = datetime(*[int(elt) for elt in start_date]).isoformat()
 
-    def reportVO(self, vo, facility):
+        end_date = re.split('[-/ :]', self.end_time)
+        endtimeq = (datetime(*[int(elt) for elt in end_date])).isoformat()
+
+        wildcardVOq = '*'+vo.lower()+'*'
+        wildcardProbeNameq = 'condor:fifebatch?.fnal.gov'
+
+        # Elasticsearch query and aggregations
+        s = Search(using = client,index = indexpattern_generate(start_date,end_date))\
+                   .query("wildcard",VOName=wildcardVOq)\
+                   .query("wildcard",ProbeName=wildcardProbeNameq)\
+                   .filter("range",EndTime={"gte":starttimeq,"lt":endtimeq})\
+                   .filter(Q({"range":{"WallDuration":{"gt":0}}}))\
+                   .filter(Q({"term":{"Host_description":"GPGrid"}}))\
+                   .filter(Q({"term":{"ResourceType":"Payload"}}))\
+                   [0:0]       #Size 0 to return only aggregations
+               
+        Bucket = s.aggs.bucket('group_VOname','terms',field='ReportableVOName')\
+                .bucket('group_HostDescription','terms',field='Host_description')\
+                .bucket('group_commonName','terms',field='CommonName')
+
+        Metric = Bucket.metric('Process_times_WallDur','sum',script="(doc['WallDuration'].value*doc['Processors'].value)")\
+                .metric('WallHours','sum',script="(doc['WallDuration'].value*doc['Processors'].value)/3600")\
+                .metric('CPUDuration','sum',field='CpuDuration')
+        #Pipeline = Metric.pipeline('Test','bucket_script',buckets_path=['CPUDuration','WallHours'],script='CPUDuration/WallHours')  #Right now, failing because Processors isn't numeric.  Follow up with Kevin.  Up until here, it works
+     
+        if self.verbose:
+            t = s.to_dict()
+            print json.dumps(t,sort_keys=True,indent=4)
+
+        response = s.execute()
+        results = response.aggregations
+
+        if not response.success():
+            raise Exception('Error accessing ElasticSearch')
+
+        if self.verbose:
+            print json.dumps(response.to_dict(),sort_keys=True,indent=4)
+        
+        return results
+
+    def query_to_csv(self, vo):
+        """Returns a csv file with aggregated data from query to Elasticsearch"""
+        outfile = 'efficiency.csv'
+        resultset = self.query(vo)
+        
+        # Header for file
+        header = '{}\t{}\t{}\t{}\t{}\n'.format('VO',
+                                             'Host Description',
+                                             'Common Name',
+                                             'Wall Hours',
+                                             'Efficiency'
+                                             )
+
+
+       # Write everything to the outfile 
+        with open(outfile,'w') as f:
+            f.write(header)
+            for per_vo in resultset.group_VOname.buckets:
+                for per_hostdesc in per_vo.group_HostDescription.buckets:
+                    for per_CN in per_hostdesc.group_commonName.buckets:
+                        if per_CN.WallHours.value > 1000:  #Value from config file
+                            outstring = '{},{},{},{},{}\n'.format(vo,
+                                                                      per_hostdesc.key,
+                                                                      per_CN.key,
+                                                                      per_CN.WallHours.value,
+                                                                      (per_CN.CPUDuration.value/3600) / per_CN.WallHours.value
+                                                                      )
+                            f.write(outstring)
+
+        return outfile
+
+    def reportVO(self, vo, users, facility):
         """Method to generate report for VO from users dictionary"""
         if vo == "FIFE":
-            records = [rec for rec in self.users.values()]
+            records = [rec for rec in users.values()]
         else:
-            records = self.users[vo.lower()]
+            records = users[vo.lower()]
         info = [rec for rec in records if ((rec.hours > self.hour_limit and rec.eff < self.eff_limit) and (facility == "all" or rec.facility == facility))]
         return sorted(info, key=lambda user: user.eff)
-
+    
     def sendReport(self, vo, report):
         """Generate HTML from report and send the email"""
         if len(report) == 0:
@@ -110,84 +196,6 @@ class Efficiency(Reporter):
         print "Report sent"
 
 
-def es_efficiency_to_file(start_time, end_time, vo, verbose = False):
-    """Function that queries elasticsearch (GRACC) for data.  Returns the csv file with aggregated data"""
-    outfile = 'efficiency.csv'
-    
-    # Initialize the elasticsearch client
-    client=Elasticsearch(['https://fifemon-es.fnal.gov'],
-                         use_ssl = True,
-                         verify_certs = True,
-                         ca_certs = '/etc/grid-security/certificates/cilogon-osg.pem',
-                         client_cert = 'gracc_cert/gracc-reports-dev.crt',
-                         client_key = 'gracc_cert/gracc-reports-dev.key',
-                         timeout = 60)
-    
-    # Gather parameters, format them for the query
-    start_date = re.split('[-/ :]', start_time)
-    starttimeq = datetime(*[int(elt) for elt in start_date]).isoformat()
-
-    end_date = re.split('[-/ :]', end_time)
-    endtimeq = (datetime(*[int(elt) for elt in end_date])).isoformat()
-
-    wildcardVOq = '*'+vo.lower()+'*'
-    wildcardProbeNameq = 'condor:fifebatch?.fnal.gov'
-
-    # Elasticsearch query and aggregations
-    s = Search(using = client,index = indexpattern_generate(start_date,end_date))\
-               .query("wildcard",VOName=wildcardVOq)\
-               .query("wildcard",ProbeName=wildcardProbeNameq)\
-               .filter("range",EndTime={"gte":starttimeq,"lt":endtimeq})\
-               .filter(Q({"range":{"WallDuration":{"gt":0}}}))\
-               .filter(Q({"term":{"Host_description":"GPGrid"}}))\
-               .filter(Q({"term":{"ResourceType":"Payload"}}))\
-               [0:0]       #Size 0 to return only aggregations
-           
-    Bucket = s.aggs.bucket('group_VOname','terms',field='ReportableVOName')\
-            .bucket('group_HostDescription','terms',field='Host_description')\
-            .bucket('group_commonName','terms',field='CommonName')
-
-    Metric = Bucket.metric('Process_times_WallDur','sum',script="(doc['WallDuration'].value*doc['Processors'].value)")\
-            .metric('WallHours','sum',script="(doc['WallDuration'].value*doc['Processors'].value)/3600")\
-            .metric('CPUDuration','sum',field='CpuDuration')
-    #Pipeline = Metric.pipeline('Test','bucket_script',buckets_path=['CPUDuration','WallHours'],script='CPUDuration/WallHours')  #Right now, failing because Processors isn't numeric.  Follow up with Kevin.  Up until here, it works
- 
-    if verbose:
-        t = s.to_dict()
-        print json.dumps(t,sort_keys=True,indent=4)
-
-    response = s.execute()
-    resultset = response.aggregations
-
-    if verbose:
-        print json.dumps(response.to_dict(),sort_keys=True,indent=4)
-   
-    # Header for file
-    header = '{}\t{}\t{}\t{}\t{}\n'.format('VO',
-                                         'Host Description',
-                                         'Common Name',
-                                         'Wall Hours',
-                                         'Efficiency'
-                                         )
-
-
-   # Write everything to the outfile 
-    with open(outfile,'w') as f:
-        f.write(header)
-        for per_vo in resultset.group_VOname.buckets:
-            for per_hostdesc in per_vo.group_HostDescription.buckets:
-                for per_CN in per_hostdesc.group_commonName.buckets:
-                    if per_CN.WallHours.value > 1000:  #Value from config file
-                        outstring = '{},{},{},{},{}\n'.format(vo,
-                                                                  per_hostdesc.key,
-                                                                  per_CN.key,
-                                                                  per_CN.WallHours.value,
-                                                                  (per_CN.CPUDuration.value/3600) / per_CN.WallHours.value
-                                                                  )
-                        f.write(outstring)
-
-    return outfile
-
 
 def parse_opts():
     """Parses command line options"""
@@ -219,26 +227,19 @@ def parse_opts():
 if __name__ == "__main__":
     opts, args = parse_opts()
     try:
-       # Set up the configuration 
+        # Set up the configuration 
         config = Configuration.Configuration()
         config.configure(opts.config)
-       # Grab VO
+        # Grab VO
         vo = opts.vo
-       # Grab the limits
+        # Grab the limits
         eff = config.config.get(opts.vo.lower(), "efficiency")
         min_hours = config.config.get(opts.vo.lower(), "min_hours")
        
-        
-    #This is the area that generates the CSV file.  Replace it with a function that generates the CSV
-       #command = config.config.get("query", "curl")
-       # command = command.replace("$START", opts.start.split()[0])
-       # command = command.replace("$END", opts.end.split()[0])
-       # command = command.replace("$VO", opts.vo.lower())
-       # command = command.replace("$MIN_HOURS", min_hours)
-       # MySQLUtils.executeCmd("curl %s > efficiency.csv" % (command,), True)
-
+        # Create an Efficiency object, create a report for the VO, and send it
+        e = Efficiency(config, opts.start, opts.end, opts.verbose, int(min_hours), float(eff), opts.isTest)
         # Run our elasticsearch query, get results as CSV 
-        resultfile = es_efficiency_to_file(opts.start, opts.end, opts.vo, opts.verbose)
+        resultfile = e.query_to_csv(vo)
         
         # For each line returned, create a User object, and add the User and their vo to the users dict
         with open(resultfile,'r') as file:
@@ -246,15 +247,13 @@ if __name__ == "__main__":
         users = {}
         for line in f[1:]:
             u = User(line)
-            #u = User(line[:-1].replace("(", '').replace(")", '').replace("'", ""))
             if not users.has_key(u.vo):
                 users[u.vo] = []
             users[u.vo].append(u)
-
-        # Create an Efficiency object, create a report for the VO, and send it
-        e = Efficiency(config, opts.start, opts.end, opts.verbose, int(min_hours), float(eff), users, opts.isTest)
+        
+        # Generate the VO report, send it
         if vo == "FIFE" or users.has_key(vo.lower()):
-            r = e.reportVO(vo, opts.facility)
+            r = e.reportVO(vo, users, opts.facility)
             e.sendReport(vo, r)
     except:
         print >> sys.stderr, traceback.format_exc()

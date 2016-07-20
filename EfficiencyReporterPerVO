@@ -71,10 +71,8 @@ class Efficiency(Reporter):
         # Gather parameters, format them for the query
         start_date = re.split('[-/ :]', self.start_time)
         starttimeq = datetime(*[int(elt) for elt in start_date]).isoformat()
-
         end_date = re.split('[-/ :]', self.end_time)
         endtimeq = (datetime(*[int(elt) for elt in end_date])).isoformat()
-
         wildcardVOq = '*'+vo.lower()+'*'
         wildcardProbeNameq = 'condor:fifebatch?.fnal.gov'
 
@@ -125,21 +123,19 @@ class Efficiency(Reporter):
                                              'Efficiency'
                                              )
 
-
        # Write everything to the outfile 
         with open(outfile,'w') as f:
             f.write(header)
             for per_vo in resultset.group_VOname.buckets:
                 for per_hostdesc in per_vo.group_HostDescription.buckets:
                     for per_CN in per_hostdesc.group_commonName.buckets:
-                        if per_CN.WallHours.value > self.hour_limit:  #Value from config file
-                            outstring = '{},{},{},{},{}\n'.format(vo,
-                                                                      per_hostdesc.key,
-                                                                      per_CN.key,
-                                                                      per_CN.WallHours.value,
-                                                                      (per_CN.CPUDuration.value/3600) / per_CN.WallHours.value
-                                                                      )
-                            f.write(outstring)
+                        outstring = '{},{},{},{},{}\n'.format(vo,
+                                                                  per_hostdesc.key,
+                                                                  per_CN.key,
+                                                                  per_CN.WallHours.value,
+                                                                  (per_CN.CPUDuration.value/3600) / per_CN.WallHours.value
+                                                                  )
+                        f.write(outstring)
 
         return outfile
 
@@ -192,8 +188,7 @@ class Efficiency(Reporter):
         
         if self.verbose:
             os.remove(fn)
-        
-        print "Report sent"
+            print "Report sent"
 
 
 

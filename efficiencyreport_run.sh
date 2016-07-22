@@ -8,6 +8,8 @@ TODAY=`date +"%F %T"`
 
 cd /home/sbhat/EfficiencyReport
 
+echo "START" `date` >> efficiencyreport_run.log
+
 for vo in ${VOS}
 do
 	echo $vo
@@ -16,4 +18,5 @@ do
 done
 
  
+echo "END" `date` >> efficiencyreport_run.log
 

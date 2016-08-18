@@ -3,29 +3,25 @@ import sys
 import os
 import optparse
 import traceback
-import operator
-import certifi
 import re
 import json
-from datetime import datetime, timedelta
+from datetime import datetime
 from elasticsearch import Elasticsearch
-from elasticsearch_dsl import Q, A, Search
+from elasticsearch_dsl import Q, Search
 
 import TextUtils
 import Configuration
-from TimeUtils import TimeUtils
 import NiceNum
-from MySQLUtils import MySQLUtils
 from Reporter import Reporter
 from indexpattern import indexpattern_generate
 
 
 class User:
     def __init__(self, info):
-        """Take CSV as described below and assigns to it the attributes vo, facility, email, user, hours, eff 
-        # CSV format DARKSIDE, Fermigrid, /CN = fifegrid/CN = batch/CN = Shawn S. Westerdale/CN = UID:shawest, 
+        """Take CSV as described below and assigns to it the attributes vo, facility, email, user, hours, eff
+        # CSV format DARKSIDE, Fermigrid, /CN = fifegrid/CN = batch/CN = Shawn S. Westerdale/CN = UID:shawest,
         # 13411.2019444, 0.969314375191
-        # New CSV format 'uboone', 'GPGrid', '/CN=fifegrid/CN=batch/CN=Elena Gramellini/CN=UID:elenag', '1337.86666667', '0.857747616437'        
+        # New CSV format 'uboone', 'GPGrid', '/CN=fifegrid/CN=batch/CN=Elena Gramellini/CN=UID:elenag', '1337.86666667', '0.857747616437'
         """
         tmp = info.split(',')
         self.vo = tmp[0].lower()
@@ -56,48 +52,46 @@ class Efficiency(Reporter):
         self.eff_limit = eff_limit
         self.isTest = isTest
         self.verbose = verbose
-    
+
     def query(self, vo):
         """Method to query Elasticsearch cluster for EfficiencyReport information"""
         # Initialize the elasticsearch client
-        client=Elasticsearch(['https://fifemon-es.fnal.gov'],
+        client = Elasticsearch(['https://fifemon-es.fnal.gov'],
                              use_ssl = True,
                              verify_certs = True,
                              ca_certs = '/etc/grid-security/certificates/cilogon-osg.pem',
                              client_cert = 'gracc_cert/gracc-reports-dev.crt',
                              client_key = 'gracc_cert/gracc-reports-dev.key',
                              timeout = 60)
-        
+
         # Gather parameters, format them for the query
         start_date = re.split('[-/ :]', self.start_time)
         starttimeq = datetime(*[int(elt) for elt in start_date]).isoformat()
         end_date = re.split('[-/ :]', self.end_time)
         endtimeq = (datetime(*[int(elt) for elt in end_date])).isoformat()
-        wildcardVOq = '*'+vo.lower()+'*'
+        wildcardVOq = '*' + vo.lower() + '*'
         wildcardProbeNameq = 'condor:fifebatch?.fnal.gov'
 
         # Elasticsearch query and aggregations
-        s = Search(using = client,index = indexpattern_generate(start_date,end_date))\
-                   .query("wildcard",VOName=wildcardVOq)\
-                   .query("wildcard",ProbeName=wildcardProbeNameq)\
-                   .filter("range",EndTime={"gte":starttimeq,"lt":endtimeq})\
-                   .filter(Q({"range":{"WallDuration":{"gt":0}}}))\
-                   .filter(Q({"term":{"Host_description":"GPGrid"}}))\
-                   .filter(Q({"term":{"ResourceType":"Payload"}}))\
-                   [0:0]       #Size 0 to return only aggregations
-               
-        Bucket = s.aggs.bucket('group_VOname','terms',field='ReportableVOName')\
-                .bucket('group_HostDescription','terms',field='Host_description')\
-                .bucket('group_commonName','terms',field='CommonName')
+        s = Search(using = client, index = indexpattern_generate(start_date, end_date))\
+                   .query("wildcard", VOName=wildcardVOq)\
+                   .query("wildcard", ProbeName=wildcardProbeNameq)\
+                   .filter("range", EndTime={"gte" : starttimeq, "lt" : endtimeq})\
+                   .filter(Q({"range" : {"WallDuration": {"gt": 0}}}))\
+                   .filter(Q({"term": {"Host_description" : "GPGrid"}}))\
+                   .filter(Q({"term" : {"ResourceType" : "Payload"}}))[0:0]       # Size 0 to return only aggregations
 
-        Metric = Bucket.metric('Process_times_WallDur','sum',script="(doc['WallDuration'].value*doc['Processors'].value)")\
-                .metric('WallHours','sum',script="(doc['WallDuration'].value*doc['Processors'].value)/3600")\
-                .metric('CPUDuration','sum',field='CpuDuration')
-        #Pipeline = Metric.pipeline('Test','bucket_script',buckets_path=['CPUDuration','WallHours'],script='CPUDuration/WallHours')  #Right now, failing because Processors isn't numeric.  Follow up with Kevin.  Up until here, it works
-     
+        Bucket = s.aggs.bucket('group_VOname', 'terms', field='ReportableVOName')\
+                .bucket('group_HostDescription', 'terms', field='Host_description')\
+                .bucket('group_commonName', 'terms', field='CommonName')
+
+        Metric = Bucket.metric('Process_times_WallDur', 'sum', script="(doc['WallDuration'].value*doc['Processors'].value)")\
+                .metric('WallHours', 'sum', script="(doc['WallDuration'].value*doc['Processors'].value)/3600")\
+                .metric('CPUDuration', 'sum', field='CpuDuration')
+
         if self.verbose:
             t = s.to_dict()
-            print json.dumps(t,sort_keys=True,indent=4)
+            print json.dumps(t, sort_keys=True, indent=4)
 
         response = s.execute()
         results = response.aggregations
@@ -106,25 +100,24 @@ class Efficiency(Reporter):
             raise Exception('Error accessing ElasticSearch')
 
         if self.verbose:
-            print json.dumps(response.to_dict(),sort_keys=True,indent=4)
-        
+            print json.dumps(response.to_dict(), sort_keys=True, indent=4)
+
         return results
 
     def query_to_csv(self, vo):
         """Returns a csv file with aggregated data from query to Elasticsearch"""
         outfile = 'efficiency.csv'
         resultset = self.query(vo)
-        
+
         # Header for file
         header = '{}\t{}\t{}\t{}\t{}\n'.format('VO',
                                              'Host Description',
                                              'Common Name',
                                              'Wall Hours',
-                                             'Efficiency'
-                                             )
+                                             'Efficiency')
 
-       # Write everything to the outfile 
-        with open(outfile,'w') as f:
+        # Write everything to the outfile
+        with open(outfile, 'w') as f:
             f.write(header)
             for per_vo in resultset.group_VOname.buckets:
                 for per_hostdesc in per_vo.group_HostDescription.buckets:
@@ -133,8 +126,7 @@ class Efficiency(Reporter):
                                                                   per_hostdesc.key,
                                                                   per_CN.key,
                                                                   per_CN.WallHours.value,
-                                                                  (per_CN.CPUDuration.value/3600) / per_CN.WallHours.value
-                                                                  )
+                                                                  (per_CN.CPUDuration.value / 3600) / per_CN.WallHours.value)
                         f.write(outstring)
 
         return outfile
@@ -147,49 +139,48 @@ class Efficiency(Reporter):
             records = users[vo.lower()]
         info = [rec for rec in records if ((rec.hours > self.hour_limit and rec.eff < self.eff_limit) and (facility == "all" or rec.facility == facility))]
         return sorted(info, key=lambda user: user.eff)
-    
+
     def sendReport(self, vo, report):
         """Generate HTML from report and send the email"""
         if len(report) == 0:
             print "Report empty"
             return
-        
+
         table = ""
         for u in report:
             table += '<tr><td align="left">{}</td><td align="left">{}</td>'.format(u.vo.upper(), u.facility) + \
                      '<td align="left">{}</td><td align="right">{}</td><td align="right">{}</td></tr>'.format(
                                                                         u.user, NiceNum.niceNum(u.hours), u.eff)
-        
+
         text = "".join(open("template_efficiency.html").readlines())
         text = text.replace("$START", self.start_time)
         text = text.replace("$END", self.end_time)
         text = text.replace("$TABLE", table)
         text = text.replace("$VO", vo.upper())
-        
+
         if self.verbose:
             fn = "{}-efficiency.{}".format(vo.lower(), self.start_time.replace("/", "-"))
-            with open(fn,'w') as f:
+            with open(fn, 'w') as f:
                 f.write(text)
-        
+
         if self.isTest:
-            emails = re.split('[; ,]',self.config.get("email", "test_to"))
+            emails = re.split('[; ,]', self.config.get("email", "test_to"))
         else:
-            emails = re.split('[; ,]',self.config.get(vo.lower(), "email")) + re.split('[; ,]',self.config.get("email", "test_to"))
+            emails = re.split('[; ,]', self.config.get(vo.lower(), "email")) + re.split('[; ,]', self.config.get("email", "test_to"))
         TextUtils.sendEmail(
-                            ([], emails), 
+                            ([], emails),
                             "{} Jobs with Low Efficiency ({})  on the  OSG Sites ({} - {})".format(
-                                                                                                    vo, 
-                                                                                                    self.eff_limit, 
-                                                                                                    self.start_time, 
-                                                                                                    self.end_time), 
+                                                                                                    vo,
+                                                                                                    self.eff_limit,
+                                                                                                    self.start_time,
+                                                                                                    self.end_time),
                             {"html": text},
                             ("Gratia Operation", "sbhat@fnal.gov"),
                             "smtp.fnal.gov")
-        
+
         if self.verbose:
             os.remove(fn)
             print "Report sent"
-
 
 
 def parse_opts():
@@ -222,7 +213,7 @@ def parse_opts():
 if __name__ == "__main__":
     opts, args = parse_opts()
     try:
-        # Set up the configuration 
+        # Set up the configuration
         config = Configuration.Configuration()
         config.configure(opts.config)
         # Grab VO
@@ -230,24 +221,24 @@ if __name__ == "__main__":
         # Grab the limits
         eff = config.config.get(opts.vo.lower(), "efficiency")
         min_hours = config.config.get(opts.vo.lower(), "min_hours")
-       
+
         # Create an Efficiency object, create a report for the VO, and send it
         e = Efficiency(config, opts.start, opts.end, opts.verbose, int(min_hours), float(eff), opts.isTest)
-        # Run our elasticsearch query, get results as CSV 
+        # Run our elasticsearch query, get results as CSV
         resultfile = e.query_to_csv(vo)
-        
+
         # For each line returned, create a User object, and add the User and their vo to the users dict
-        with open(resultfile,'r') as file:
+        with open(resultfile, 'r') as file:
             f = file.readlines()
         users = {}
         for line in f[1:]:
             u = User(line)
-            if not users.has_key(u.vo):
+            if u.vo not in users:
                 users[u.vo] = []
             users[u.vo].append(u)
-        
+
         # Generate the VO report, send it
-        if vo == "FIFE" or users.has_key(vo.lower()):
+        if vo == "FIFE" or vo.lower() in users:
             r = e.reportVO(vo, users, opts.facility)
             e.sendReport(vo, r)
     except:

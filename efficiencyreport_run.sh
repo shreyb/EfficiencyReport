@@ -13,7 +13,7 @@ echo "START" `date` >> efficiencyreport_run.log
 for vo in ${VOS}
 do
 	echo $vo
-	./EfficiencyReporterPerVO -F GPGrid -c efficiency.config -E $vo -s "$YESTERDAY" -e "$TODAY" -d
+	./EfficiencyReporterPerVO.py -F GPGrid -c efficiency.config -E $vo -s "$YESTERDAY" -e "$TODAY" -d
 	echo "Sent report for $vo"
 done
 

@@ -32,13 +32,13 @@ class User:
 
     def parseCN(self, cn):
         """Parse the CN to grab the email address and user"""
-        indx = cn.find("/CN=UID:")
-        if indx > 0:
-            email = '{}@fnal.gov'.format(cn[indx + len("/CN=UID:"):])
+        m = re.match(".+CN=UID:(\w+)", cn)      # CILogon certs
+        if m:
+            email = '{}@fnal.gov'.format(m.group(1))
         else:
             email = ""
-            indx = cn.rfind('/')
-        user = cn[cn[:indx].rfind("=") + 1:indx]
+            m = re.match('/CN=(\w+)/.+', cn)    # Non-CILogon Certs (note - this matches what we did before, but we might need to change it in the future
+        user = m.group(1)
         return email, user
 
     def dump(self):

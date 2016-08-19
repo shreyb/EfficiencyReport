@@ -46,30 +46,22 @@ class User:
 
 
 class Efficiency(Reporter):
-    def __init__(self, config, start, end, verbose, hour_limit, eff_limit, isTest):
+    def __init__(self, config, start, end, vo, verbose, hour_limit, eff_limit, isTest):
         Reporter.__init__(self, config, start, end, verbose = False)
         self.hour_limit = hour_limit
+        self.vo = vo
         self.eff_limit = eff_limit
         self.isTest = isTest
         self.verbose = verbose
 
-    def query(self, vo):
+    def query(self, client):
         """Method to query Elasticsearch cluster for EfficiencyReport information"""
-        # Initialize the elasticsearch client
-        client = Elasticsearch(['https://fifemon-es.fnal.gov'],
-                             use_ssl = True,
-                             verify_certs = True,
-                             ca_certs = '/etc/grid-security/certificates/cilogon-osg.pem',
-                             client_cert = 'gracc_cert/gracc-reports-dev.crt',
-                             client_key = 'gracc_cert/gracc-reports-dev.key',
-                             timeout = 60)
-
         # Gather parameters, format them for the query
         start_date = re.split('[-/ :]', self.start_time)
         starttimeq = datetime(*[int(elt) for elt in start_date]).isoformat()
         end_date = re.split('[-/ :]', self.end_time)
         endtimeq = (datetime(*[int(elt) for elt in end_date])).isoformat()
-        wildcardVOq = '*' + vo.lower() + '*'
+        wildcardVOq = '*' + self.vo.lower() + '*'
         wildcardProbeNameq = 'condor:fifebatch?.fnal.gov'
 
         # Elasticsearch query and aggregations
@@ -89,25 +81,35 @@ class Efficiency(Reporter):
                 .metric('WallHours', 'sum', script="(doc['WallDuration'].value*doc['Processors'].value)/3600")\
                 .metric('CPUDuration', 'sum', field='CpuDuration')
 
+        return s
+
+    def query_to_csv(self):
+        """Returns a csv file with aggregated data from query to Elasticsearch"""
+        outfile = 'efficiency.csv'
+
+        # Initialize the elasticsearch client
+        client = Elasticsearch(['https://fifemon-es.fnal.gov'],
+                             use_ssl = True,
+                             verify_certs = True,
+                             ca_certs = '/etc/grid-security/certificates/cilogon-osg.pem',
+                             client_cert = 'gracc_cert/gracc-reports-dev.crt',
+                             client_key = 'gracc_cert/gracc-reports-dev.key',
+                             timeout = 60)
+
+        s = self.query(client)
+
         if self.verbose:
             t = s.to_dict()
             print json.dumps(t, sort_keys=True, indent=4)
 
         response = s.execute()
-        results = response.aggregations
+        resultset = response.aggregations
 
         if not response.success():
             raise Exception('Error accessing ElasticSearch')
 
         if self.verbose:
             print json.dumps(response.to_dict(), sort_keys=True, indent=4)
-
-        return results
-
-    def query_to_csv(self, vo):
-        """Returns a csv file with aggregated data from query to Elasticsearch"""
-        outfile = 'efficiency.csv'
-        resultset = self.query(vo)
 
         # Header for file
         header = '{}\t{}\t{}\t{}\t{}\n'.format('VO',
@@ -122,7 +124,7 @@ class Efficiency(Reporter):
             for per_vo in resultset.group_VOname.buckets:
                 for per_hostdesc in per_vo.group_HostDescription.buckets:
                     for per_CN in per_hostdesc.group_commonName.buckets:
-                        outstring = '{},{},{},{},{}\n'.format(vo,
+                        outstring = '{},{},{},{},{}\n'.format(self.vo,
                                                                   per_hostdesc.key,
                                                                   per_CN.key,
                                                                   per_CN.WallHours.value,
@@ -131,16 +133,16 @@ class Efficiency(Reporter):
 
         return outfile
 
-    def reportVO(self, vo, users, facility):
+    def reportVO(self, users, facility):
         """Method to generate report for VO from users dictionary"""
-        if vo == "FIFE":
+        if self.vo == "FIFE":
             records = [rec for rec in users.values()]
         else:
-            records = users[vo.lower()]
+            records = users[self.vo.lower()]
         info = [rec for rec in records if ((rec.hours > self.hour_limit and rec.eff < self.eff_limit) and (facility == "all" or rec.facility == facility))]
         return sorted(info, key=lambda user: user.eff)
 
-    def send_report(self, vo, report):
+    def send_report(self, report):
         """Generate HTML from report and send the email"""
         if len(report) == 0:
             print "Report empty"
@@ -156,21 +158,21 @@ class Efficiency(Reporter):
         text = text.replace("$START", self.start_time)
         text = text.replace("$END", self.end_time)
         text = text.replace("$TABLE", table)
-        text = text.replace("$VO", vo.upper())
+        text = text.replace("$VO", self.vo.upper())
 
         if self.verbose:
-            fn = "{}-efficiency.{}".format(vo.lower(), self.start_time.replace("/", "-"))
+            fn = "{}-efficiency.{}".format(self.vo.lower(), self.start_time.replace("/", "-"))
             with open(fn, 'w') as f:
                 f.write(text)
 
         if self.isTest:
             emails = re.split('[; ,]', self.config.get("email", "test_to"))
         else:
-            emails = re.split('[; ,]', self.config.get(vo.lower(), "email")) + re.split('[; ,]', self.config.get("email", "test_to"))
+            emails = re.split('[; ,]', self.config.get(self.vo.lower(), "email")) + re.split('[; ,]', self.config.get("email", "test_to"))
         TextUtils.sendEmail(
                             ([], emails),
                             "{} Jobs with Low Efficiency ({})  on the  OSG Sites ({} - {})".format(
-                                                                                                    vo,
+                                                                                                    self.vo,
                                                                                                     self.eff_limit,
                                                                                                     self.start_time,
                                                                                                     self.end_time),
@@ -223,9 +225,9 @@ if __name__ == "__main__":
         min_hours = config.config.get(opts.vo.lower(), "min_hours")
 
         # Create an Efficiency object, create a report for the VO, and send it
-        e = Efficiency(config, opts.start, opts.end, opts.verbose, int(min_hours), float(eff), opts.isTest)
+        e = Efficiency(config, opts.start, opts.end, vo, opts.verbose, int(min_hours), float(eff), opts.isTest)
         # Run our elasticsearch query, get results as CSV
-        resultfile = e.query_to_csv(vo)
+        resultfile = e.query_to_csv()
 
         # For each line returned, create a User object, and add the User and their vo to the users dict
         with open(resultfile, 'r') as file:
@@ -239,8 +241,8 @@ if __name__ == "__main__":
 
         # Generate the VO report, send it
         if vo == "FIFE" or vo.lower() in users:
-            r = e.reportVO(vo, users, opts.facility)
-            e.send_report(vo, r)
+            r = e.reportVO(users, opts.facility)
+            e.send_report(r)
     except:
         print >> sys.stderr, traceback.format_exc()
         sys.exit(1)

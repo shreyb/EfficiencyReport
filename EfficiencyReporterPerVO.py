@@ -140,7 +140,7 @@ class Efficiency(Reporter):
         info = [rec for rec in records if ((rec.hours > self.hour_limit and rec.eff < self.eff_limit) and (facility == "all" or rec.facility == facility))]
         return sorted(info, key=lambda user: user.eff)
 
-    def sendReport(self, vo, report):
+    def send_report(self, vo, report):
         """Generate HTML from report and send the email"""
         if len(report) == 0:
             print "Report empty"
@@ -240,7 +240,7 @@ if __name__ == "__main__":
         # Generate the VO report, send it
         if vo == "FIFE" or vo.lower() in users:
             r = e.reportVO(vo, users, opts.facility)
-            e.sendReport(vo, r)
+            e.send_report(vo, r)
     except:
         print >> sys.stderr, traceback.format_exc()
         sys.exit(1)

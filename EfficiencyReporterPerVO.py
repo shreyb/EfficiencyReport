@@ -1,7 +1,7 @@
 #!/usr/bin/env python
+
 import sys
 import os
-import optparse
 import traceback
 import re
 import json
@@ -46,12 +46,12 @@ class User:
 
 
 class Efficiency(Reporter):
-    def __init__(self, config, start, end, vo, verbose, hour_limit, eff_limit, isTest):
+    def __init__(self, config, start, end, vo, verbose, hour_limit, eff_limit, is_test):
         Reporter.__init__(self, config, start, end, verbose = False)
         self.hour_limit = hour_limit
         self.vo = vo
         self.eff_limit = eff_limit
-        self.isTest = isTest
+        self.is_test = is_test
         self.verbose = verbose
 
     def query(self, client):
@@ -165,7 +165,7 @@ class Efficiency(Reporter):
             with open(fn, 'w') as f:
                 f.write(text)
 
-        if self.isTest:
+        if self.is_test:
             emails = re.split('[; ,]', self.config.get("email", "test_to"))
         else:
             emails = re.split('[; ,]', self.config.get(self.vo.lower(), "email")) + re.split('[; ,]', self.config.get("email", "test_to"))
@@ -185,35 +185,8 @@ class Efficiency(Reporter):
             print "Report sent"
 
 
-def parse_opts():
-    """Parses command line options"""
-    usage = "Usage: %prog [options]"
-    parser = optparse.OptionParser(usage)
-    parser.add_option("-c", "--config", dest="config", type="string",
-                      help="report configuration file (required)")
-    parser.add_option("-v", "--verbose",
-                      action="store_true", dest="verbose", default=False,
-                      help="print debug messages to stdout")
-    parser.add_option("-E", "--experiement",
-                      dest="vo", type="string",
-                      help="experiment name")
-    parser.add_option("-F", "--facility",
-                      dest="facility", type="string",
-                      help="facility  name")
-    parser.add_option("-s", "--start", type="string",
-                    dest="start", help="report start date YYYY/MM/DD HH:mm:ss or YYYY-MM-DD HH:mm:ss (required)")
-    parser.add_option("-e", "--end", type="string",
-                    dest="end", help="report end date YYYY/MM/DD HH:mm:ss or YYYY-MM-DD HH:mm:ss")
-    parser.add_option("-d", "--dryrun", action="store_true", dest="isTest", default=False,
-                      help="send emails only to testers")
-
-    opts, args = parser.parse_args()
-    Configuration.checkRequiredArguments(opts, parser)
-    return opts, args
-
-
 if __name__ == "__main__":
-    opts, args = parse_opts()
+    opts, args = Reporter.parse_opts()
     try:
         # Set up the configuration
         config = Configuration.Configuration()
@@ -225,7 +198,7 @@ if __name__ == "__main__":
         min_hours = config.config.get(opts.vo.lower(), "min_hours")
 
         # Create an Efficiency object, create a report for the VO, and send it
-        e = Efficiency(config, opts.start, opts.end, vo, opts.verbose, int(min_hours), float(eff), opts.isTest)
+        e = Efficiency(config, opts.start, opts.end, vo, opts.verbose, int(min_hours), float(eff), opts.is_test)
         # Run our elasticsearch query, get results as CSV
         resultfile = e.query_to_csv()
 

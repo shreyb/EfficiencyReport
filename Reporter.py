@@ -54,9 +54,12 @@ class Reporter(object):
         parser.add_option("-v", "--verbose",
                           action="store_true", dest="verbose", default=False,
                           help="print debug messages to stdout")
-        parser.add_option("-E", "--experiement",
+        parser.add_option("-E", "--experiment",
                           dest="vo", type="string",
                           help="experiment name")
+        parser.add_option("-F", "--facility",
+                         dest="facility", type="string",
+                         help="facility name")
         parser.add_option("-T", "--template",
                           dest="template", type="string",
                           help="template_file")
